@@ -1,10 +1,13 @@
+import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:proyecto_jj/data/models/user_model.dart';
 
 class AuthRepository {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseStorage _storage = FirebaseStorage.instance;
 
   Future<UserModel?> signIn(String email, String password) async {
     try {
@@ -25,7 +28,8 @@ class AuthRepository {
     required String lastName,
   }) async {
     try {
-      UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
+      UserCredential userCredential =
+          await _auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
@@ -49,13 +53,18 @@ class AuthRepository {
   }
 
   Future<UserModel?> _getUserFromFirestore(String uid) async {
-    DocumentSnapshot userDoc = await _firestore.collection('users').doc(uid).get();
+    DocumentSnapshot userDoc =
+        await _firestore.collection('users').doc(uid).get();
     if (userDoc.exists) {
+      Map<String, dynamic> data = userDoc.data() as Map<String, dynamic>;
       return UserModel(
         uid: uid,
-        email: userDoc['email'],
-        firstName: userDoc['firstName'],
-        lastName: userDoc['lastName'],
+        email: data['email'],
+        firstName: data['firstName'],
+        lastName: data['lastName'],
+        avatarUrl: data['avatarUrl'],
+        avatarType: data['avatarType'],
+        avatarData: data['avatarData'],
       );
     }
     return null;
@@ -63,5 +72,79 @@ class AuthRepository {
 
   Future<void> signOut() async {
     await _auth.signOut();
+  }
+
+  // Método para actualizar el perfil del usuario
+  Future<UserModel?> updateUserProfile({
+    required String uid,
+    String? firstName,
+    String? lastName,
+  }) async {
+    try {
+      Map<String, dynamic> updateData = {};
+
+      if (firstName != null) updateData['firstName'] = firstName;
+      if (lastName != null) updateData['lastName'] = lastName;
+
+      await _firestore.collection('users').doc(uid).update(updateData);
+
+      return _getUserFromFirestore(uid);
+    } catch (e) {
+      throw e;
+    }
+  }
+
+  // Método para actualizar el avatar del usuario con una imagen subida
+  Future<UserModel?> updateUserAvatar({
+    required String uid,
+    required File imageFile,
+  }) async {
+    try {
+      // Obtener la extensión del archivo
+      String extension = imageFile.path.split('.').last.toLowerCase();
+      if (extension.isEmpty) extension = 'jpg'; // Default si no hay extensión
+
+      // Crear la referencia en Storage asegurando que las carpetas existan
+      String fileName =
+          'avatars/$uid/${DateTime.now().millisecondsSinceEpoch}.$extension';
+      Reference storageRef = _storage.ref().child(fileName);
+
+      // Configurar los metadatos para aceptar cualquier tipo de imagen
+      SettableMetadata metadata = SettableMetadata(
+        contentType: 'image/$extension',
+      );
+
+      // Subir imagen a Firebase Storage con los metadatos
+      await storageRef.putFile(imageFile, metadata);
+      String downloadUrl = await storageRef.getDownloadURL();
+
+      // Actualizar datos en Firestore
+      await _firestore.collection('users').doc(uid).update({
+        'avatarUrl': downloadUrl,
+        'avatarType': 'uploaded',
+      });
+
+      return _getUserFromFirestore(uid);
+    } catch (e) {
+      print('Error al subir imagen: $e');
+      throw e;
+    }
+  }
+
+  // Método para actualizar el avatar personalizado (fluttermoji)
+  Future<UserModel?> updateCustomAvatar({
+    required String uid,
+    required Map<String, dynamic> avatarData,
+  }) async {
+    try {
+      await _firestore.collection('users').doc(uid).update({
+        'avatarData': avatarData,
+        'avatarType': 'custom',
+      });
+
+      return _getUserFromFirestore(uid);
+    } catch (e) {
+      throw e;
+    }
   }
 }
