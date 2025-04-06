@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:curved_navigation_bar/curved_navigation_bar.dart';
+import 'package:proyecto_jj/presentation/pages/plants_page.dart';
 import 'home_page.dart';
 import 'profile_page.dart';
 
@@ -16,6 +17,7 @@ class _MainLayoutState extends State<MainLayout> {
   
   final List<Widget> _pages = [
     HomePage(),
+    PlantsPage(),
     ProfilePage(),
   ];
 
@@ -34,6 +36,7 @@ class _MainLayoutState extends State<MainLayout> {
           height: 60.0,
           items: <Widget>[
             Icon(Icons.home_rounded, size: 30, color: Colors.white),
+            Icon(Icons.eco_rounded, size: 30, color: Colors.white),
             Icon(Icons.person_rounded, size: 30, color: Colors.white),
           ],
           color: theme.colorScheme.primary,
