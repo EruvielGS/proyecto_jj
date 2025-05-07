@@ -1,14 +1,34 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:proyecto_jj/data/models/plant_model.dart';
 import 'package:proyecto_jj/data/models/reading_model.dart';
 import 'package:proyecto_jj/data/models/watering_event_model.dart';
 import 'package:proyecto_jj/domain/use_cases/plant_usecase.dart';
+import 'package:proyecto_jj/presentation/providers/auth_provider.dart';
+import 'package:proyecto_jj/presentation/providers/notification_provider.dart';
+import 'package:proyecto_jj/services/esp_service.dart';
+import 'package:proyecto_jj/main.dart';
 
 class PlantProvider with ChangeNotifier {
   final PlantUseCase _plantUseCase;
+  final ESPService _espService = ESPService();
 
-  PlantProvider(this._plantUseCase);
+  PlantProvider(this._plantUseCase) {
+    // Suscribirse a nuevas lecturas del ESP
+    _espService.newReading.listen((reading) {
+      // Si la lectura es para la planta seleccionada, agregarla a la lista
+      if (_selectedPlant != null && reading.plantId == _selectedPlant!.id) {
+        _readings.insert(0, reading);
+
+        // Guardar la lectura en la base de datos
+        _plantUseCase.saveReading(reading);
+
+        // Notificar a los listeners
+        notifyListeners();
+      }
+    });
+  }
 
   List<PlantModel> _plants = [];
   List<PlantModel> get plants => _plants;
@@ -28,11 +48,35 @@ class PlantProvider with ChangeNotifier {
   String? _error;
   String? get error => _error;
 
+  // Verificar si hay un ESP conectado
+  bool get isESPConnected => _espService.isConnected;
+
   // Cargar plantas de un usuario
   Future<void> loadUserPlants(String userId) async {
-    _setLoading(true);
+    if (_isLoading) return; // Evitar múltiples cargas simultáneas
+
+    _isLoading = true;
+    // Notificar fuera del ciclo de build
+    Future.microtask(() => notifyListeners());
+
     try {
       _plants = await _plantUseCase.getUserPlants(userId);
+
+      // Intentar obtener datos actuales para cada planta si hay un ESP conectado
+      if (_espService.isConnected) {
+        for (var plant in _plants) {
+          try {
+            final reading = await _espService.fetchSensorData(plant.id);
+            if (reading != null) {
+              // Guardar la lectura en la base de datos
+              await _plantUseCase.saveReading(reading);
+            }
+          } catch (e) {
+            print('Error al obtener datos para planta ${plant.id}: $e');
+          }
+        }
+      }
+
       _error = null;
     } catch (e) {
       _error = e.toString();
@@ -50,6 +94,19 @@ class PlantProvider with ChangeNotifier {
       _selectedPlant = await _plantUseCase.getPlantById(plantId);
       if (_selectedPlant != null) {
         await loadPlantData(plantId);
+
+        // Si hay un ESP conectado, obtener datos actuales
+        if (_espService.isConnected) {
+          final reading = await _espService.fetchSensorData(plantId);
+          if (reading != null) {
+            // Guardar la lectura en la base de datos
+            await _plantUseCase.saveReading(reading);
+
+            // Actualizar la lista de lecturas
+            _readings.insert(0, reading);
+            notifyListeners();
+          }
+        }
       }
       _error = null;
     } catch (e) {
@@ -119,6 +176,17 @@ class PlantProvider with ChangeNotifier {
       _plants.add(plant);
       _error = null;
       notifyListeners();
+
+      // Si hay un ESP conectado, configurar el riego automático
+      if (_espService.isConnected &&
+          _espService.connectedDeviceId == deviceId) {
+        await _espService.configureAutomaticWatering(
+          plant.id,
+          wateringThreshold ?? 30,
+          wateringDuration ?? 5,
+        );
+      }
+
       return plant;
     } catch (e) {
       _error = e.toString();
@@ -164,6 +232,18 @@ class PlantProvider with ChangeNotifier {
 
       _error = null;
       notifyListeners();
+
+      // Si hay un ESP conectado y se actualizaron los parámetros de riego, configurar el riego automático
+      if (_espService.isConnected &&
+          _espService.connectedDeviceId == deviceId &&
+          (wateringThreshold != null || wateringDuration != null)) {
+        await _espService.configureAutomaticWatering(
+          plantId,
+          wateringThreshold ?? plant.wateringThreshold,
+          wateringDuration ?? plant.wateringDuration,
+        );
+      }
+
       return plant;
     } catch (e) {
       _error = e.toString();
@@ -271,8 +351,58 @@ class PlantProvider with ChangeNotifier {
     }
   }
 
+  // Obtener datos actuales del ESP
+  Future<ReadingModel?> fetchCurrentData(String plantId) async {
+    if (!_espService.isConnected) {
+      print('No hay conexión con el ESP');
+      return null;
+    }
+
+    try {
+      final reading = await _espService.fetchSensorData(plantId);
+      if (reading != null) {
+        // Guardar la lectura en la base de datos
+        await _plantUseCase.saveReading(reading);
+
+        // Actualizar la lista de lecturas
+        _readings.insert(0, reading);
+
+        // Verificar si se debe generar una notificación de humedad baja
+        if (_selectedPlant != null &&
+            reading.soilMoisture < _selectedPlant!.wateringThreshold) {
+          // Obtener el provider de notificaciones
+          final notificationProvider = Provider.of<NotificationProvider>(
+              navigatorKey.currentContext!,
+              listen: false);
+          final authProvider = Provider.of<AuthProvider>(
+              navigatorKey.currentContext!,
+              listen: false);
+
+          if (authProvider.user != null) {
+            await notificationProvider.createHumidityWarningNotification(
+              userId: authProvider.user!.uid,
+              plantName: _selectedPlant!.name,
+              plantId: _selectedPlant!.id,
+              humidity: reading.soilMoisture,
+              imageUrl: _selectedPlant!.imageUrl,
+            );
+          }
+        }
+
+        notifyListeners();
+      }
+      return reading;
+    } catch (e) {
+      print('Error al obtener datos actuales: $e');
+      return null;
+    }
+  }
+
   void _setLoading(bool loading) {
-    _isLoading = loading;
-    notifyListeners();
+    if (_isLoading != loading) {
+      _isLoading = loading;
+      // Usar Future.microtask para evitar notificar durante el build
+      Future.microtask(() => notifyListeners());
+    }
   }
 }

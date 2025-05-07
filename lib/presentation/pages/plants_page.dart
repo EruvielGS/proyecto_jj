@@ -22,11 +22,7 @@ class _PlantsPageState extends State<PlantsPage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (!_isInitialized) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _initData();
-      });
-    }
+    _initData();
   }
 
   Future<void> _initData() async {
@@ -45,11 +41,6 @@ class _PlantsPageState extends State<PlantsPage> {
         if (authProvider.user != null) {
           await plantProvider.loadUserPlants(authProvider.user!.uid);
           await deviceProvider.loadUserDevices(authProvider.user!.uid);
-
-          // Si no hay dispositivos, generar datos de prueba
-          if (deviceProvider.devices.isEmpty) {
-            await deviceProvider.generateMockDevices(authProvider.user!.uid);
-          }
         }
 
         _isInitialized = true;
@@ -185,12 +176,7 @@ class _PlantsPageState extends State<PlantsPage> {
       ),
       child: InkWell(
         onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => PlantDetailPage(plantId: plant.id),
-            ),
-          );
+          _navigateToPlantDetail(plant.id);
         },
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -284,5 +270,24 @@ class _PlantsPageState extends State<PlantsPage> {
 
   String _formatDate(DateTime date) {
     return '${date.day}/${date.month}/${date.year}';
+  }
+
+  void _navigateToPlantDetail(String plantId) async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PlantDetailPage(plantId: plantId),
+      ),
+    );
+
+    // Si se eliminó una planta, recargar la lista
+    if (result == true) {
+      final plantProvider = Provider.of<PlantProvider>(context, listen: false);
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+
+      if (authProvider.user != null) {
+        await plantProvider.loadUserPlants(authProvider.user!.uid);
+      }
+    }
   }
 }

@@ -13,9 +13,9 @@ class PlantDetailPage extends StatefulWidget {
   final String plantId;
 
   const PlantDetailPage({
-    super.key,
+    Key? key,
     required this.plantId,
-  });
+  }) : super(key: key);
 
   @override
   State<PlantDetailPage> createState() => _PlantDetailPageState();
@@ -26,6 +26,7 @@ class _PlantDetailPageState extends State<PlantDetailPage>
   late TabController _tabController;
   bool _isLoading = true;
   bool _isInitialized = false;
+  bool _isRefreshing = false;
 
   @override
   void initState() {
@@ -57,11 +58,11 @@ class _PlantDetailPageState extends State<PlantDetailPage>
     try {
       final plantProvider = Provider.of<PlantProvider>(context, listen: false);
 
-      // Verificar y corregir problemas con los eventos de riego
-      await plantProvider.verifyAndFixWateringEvents(widget.plantId);
-
       // Cargar datos de la planta
       await plantProvider.selectPlant(widget.plantId);
+
+      // Intentar obtener datos actuales del ESP si está conectado
+      await plantProvider.fetchCurrentData(widget.plantId);
     } catch (e) {
       if (mounted) {
         AlertHelper.showErrorAlert(
@@ -71,6 +72,45 @@ class _PlantDetailPageState extends State<PlantDetailPage>
       if (mounted) {
         setState(() {
           _isLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _refreshData() async {
+    if (_isRefreshing) return;
+
+    setState(() {
+      _isRefreshing = true;
+    });
+
+    try {
+      final plantProvider = Provider.of<PlantProvider>(context, listen: false);
+
+      // Obtener datos actuales del ESP si está conectado
+      await plantProvider.fetchCurrentData(widget.plantId);
+
+      // Recargar datos de la planta
+      await plantProvider.loadPlantData(widget.plantId);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Datos actualizados correctamente'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        AlertHelper.showErrorAlert(
+            context, 'Error al actualizar datos: ${e.toString()}');
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isRefreshing = false;
         });
       }
     }
@@ -123,7 +163,7 @@ class _PlantDetailPageState extends State<PlantDetailPage>
           // Recargar datos explícitamente después de un breve retraso
           Future.delayed(Duration(seconds: 2), () {
             if (mounted) {
-              _loadPlantData();
+              _refreshData();
             }
           });
         }
@@ -138,9 +178,76 @@ class _PlantDetailPageState extends State<PlantDetailPage>
     }
   }
 
+  Future<void> _deletePlant() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Eliminar planta'),
+        content: Text(
+            '¿Estás seguro de que deseas eliminar esta planta? Esta acción no se puede deshacer.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text('Eliminar'),
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.red,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      setState(() {
+        _isLoading = true;
+      });
+
+      try {
+        final success = await Provider.of<PlantProvider>(context, listen: false)
+            .deletePlant(widget.plantId);
+
+        if (success) {
+          if (mounted) {
+            // Mostrar mensaje de éxito y luego navegar hacia atrás
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Planta eliminada correctamente'),
+                backgroundColor: Colors.green,
+                duration: Duration(seconds: 1),
+              ),
+            );
+
+            // Esperar un momento y luego navegar hacia atrás
+            Future.delayed(Duration(milliseconds: 1200), () {
+              if (mounted) {
+                Navigator.pop(context,
+                    true); // Pasar true para indicar que se eliminó la planta
+              }
+            });
+          }
+        } else {
+          throw Exception('No se pudo eliminar la planta');
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+          AlertHelper.showErrorAlert(
+              context, 'Error al eliminar planta: ${e.toString()}');
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isESPConnected = Provider.of<PlantProvider>(context).isESPConnected;
 
     // Usar Consumer para evitar reconstrucciones innecesarias
     return Scaffold(
@@ -156,9 +263,18 @@ class _PlantDetailPageState extends State<PlantDetailPage>
         actions: [
           if (!_isLoading) ...[
             IconButton(
-              icon: Icon(Icons.refresh),
-              onPressed: _loadPlantData,
-              tooltip: 'Recargar datos',
+              icon: _isRefreshing
+                  ? SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : Icon(Icons.refresh),
+              onPressed: _isRefreshing ? null : _refreshData,
+              tooltip: 'Actualizar datos',
             ),
             IconButton(
               icon: Icon(Icons.edit),
@@ -179,28 +295,9 @@ class _PlantDetailPageState extends State<PlantDetailPage>
             PopupMenuButton<String>(
               onSelected: (value) async {
                 if (value == 'delete') {
-                  final plantProvider =
-                      Provider.of<PlantProvider>(context, listen: false);
-                  final plant = plantProvider.selectedPlant;
-                  if (plant == null) return;
-
-                  final confirm = await AlertHelper.showConfirmAlert(
-                    context,
-                    '¿Estás seguro que deseas eliminar esta planta?\n\nEsta acción no se puede deshacer.',
-                    confirmBtnText: 'Eliminar',
-                    confirmBtnColor: theme.colorScheme.error,
-                  );
-
-                  if (confirm) {
-                    final success = await plantProvider.deletePlant(plant.id);
-                    if (success && mounted) {
-                      AlertHelper.showSuccessAlert(
-                          context, 'Planta eliminada correctamente');
-                      Navigator.pop(context);
-                    }
-                  }
+                  await _deletePlant();
                 } else if (value == 'refresh') {
-                  await _loadPlantData();
+                  await _refreshData();
                 } else if (value == 'generate_mock') {
                   final plantProvider =
                       Provider.of<PlantProvider>(context, listen: false);
@@ -225,16 +322,18 @@ class _PlantDetailPageState extends State<PlantDetailPage>
                     ],
                   ),
                 ),
-                PopupMenuItem(
-                  value: 'generate_mock',
-                  child: Row(
-                    children: [
-                      Icon(Icons.data_array, color: theme.colorScheme.primary),
-                      SizedBox(width: 8),
-                      Text('Generar datos de prueba'),
-                    ],
+                if (!isESPConnected)
+                  PopupMenuItem(
+                    value: 'generate_mock',
+                    child: Row(
+                      children: [
+                        Icon(Icons.data_array,
+                            color: theme.colorScheme.primary),
+                        SizedBox(width: 8),
+                        Text('Generar datos de prueba'),
+                      ],
+                    ),
                   ),
-                ),
                 PopupMenuItem(
                   value: 'delete',
                   child: Row(
@@ -703,31 +802,9 @@ class _PlantDetailPageState extends State<PlantDetailPage>
             ),
             SizedBox(height: 16),
             ElevatedButton.icon(
-              onPressed: () async {
-                try {
-                  final plantProvider =
-                      Provider.of<PlantProvider>(context, listen: false);
-                  final plant = plantProvider.selectedPlant;
-                  if (plant != null) {
-                    AlertHelper.showLoadingAlert(
-                        context, 'Generando datos de prueba...');
-                    await plantProvider.generateMockData(plant.id);
-                    if (context.mounted) {
-                      Navigator.pop(context); // Cerrar diálogo de carga
-                      AlertHelper.showSuccessAlert(
-                          context, 'Datos de prueba generados correctamente');
-                    }
-                  }
-                } catch (e) {
-                  if (context.mounted) {
-                    Navigator.pop(context); // Cerrar diálogo de carga
-                    AlertHelper.showErrorAlert(
-                        context, 'Error al generar datos: ${e.toString()}');
-                  }
-                }
-              },
-              icon: Icon(Icons.add_chart),
-              label: Text('Generar datos de prueba'),
+              onPressed: _refreshData,
+              icon: Icon(Icons.refresh),
+              label: Text('Actualizar datos'),
             ),
           ],
         ),

@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:proyecto_jj/core/utils/alert_helper.dart';
+import 'package:proyecto_jj/presentation/pages/forgot_password_page.dart';
 import 'package:proyecto_jj/presentation/pages/register_page.dart';
 import 'package:proyecto_jj/presentation/providers/auth_provider.dart';
 import 'package:proyecto_jj/presentation/widgets/custom_button.dart';
 import 'package:proyecto_jj/presentation/widgets/custom_textfield.dart';
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+  const LoginPage({Key? key}) : super(key: key);
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -116,9 +117,12 @@ class _LoginPageState extends State<LoginPage> {
                     alignment: Alignment.centerRight,
                     child: TextButton(
                       onPressed: () {
-                        // Implementar recuperación de contraseña
-                        AlertHelper.showInfoAlert(context,
-                            'Función de recuperación de contraseña próximamente');
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => ForgotPasswordPage(),
+                          ),
+                        );
                       },
                       child: Text('¿Olvidaste tu contraseña?'),
                     ),

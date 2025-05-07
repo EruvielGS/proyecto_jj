@@ -64,4 +64,9 @@ class AuthUseCase {
       avatarData: avatarData,
     );
   }
+
+  // Añadir método para restablecer contraseña
+  Future<void> resetPassword(String email) async {
+    return await _authRepository.resetPassword(email);
+  }
 }

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:proyecto_jj/core/utils/alert_helper.dart';
 import 'package:proyecto_jj/data/models/device_model.dart';
+import 'package:proyecto_jj/presentation/pages/device_detection_page.dart';
 import 'package:proyecto_jj/presentation/widgets/custom_textfield.dart';
 import '../providers/auth_provider.dart';
 import '../providers/plant_provider.dart';
@@ -11,7 +12,7 @@ import '../providers/device_provider.dart';
 import '../widgets/custom_button.dart';
 
 class AddPlantPage extends StatefulWidget {
-  const AddPlantPage({super.key});
+  const AddPlantPage({Key? key}) : super(key: key);
 
   @override
   State<AddPlantPage> createState() => _AddPlantPageState();
@@ -58,6 +59,34 @@ class _AddPlantPageState extends State<AddPlantPage> {
     }
   }
 
+  Future<void> _detectESPDevice() async {
+    try {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      if (authProvider.user == null) {
+        throw Exception('No hay usuario autenticado');
+      }
+
+      final device = await Navigator.push<DeviceModel>(
+        context,
+        MaterialPageRoute(
+          builder: (context) =>
+              DeviceDetectionPage(userId: authProvider.user!.uid),
+        ),
+      );
+
+      if (device != null) {
+        setState(() {
+          selectedDeviceId = device.id;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        AlertHelper.showErrorAlert(
+            context, 'Error al detectar dispositivo: ${e.toString()}');
+      }
+    }
+  }
+
   Future<void> _savePlant() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -66,6 +95,9 @@ class _AddPlantPageState extends State<AddPlantPage> {
           context, 'Por favor selecciona un dispositivo');
       return;
     }
+
+    // Evitar múltiples envíos
+    if (isLoading) return;
 
     setState(() {
       isLoading = true;
@@ -90,17 +122,16 @@ class _AddPlantPageState extends State<AddPlantPage> {
       );
 
       if (plant != null) {
-        // Generar datos de prueba para la planta
-        await plantProvider.generateMockData(plant.id);
-
         if (mounted) {
           AlertHelper.showSuccessAlert(
               context, 'Planta agregada correctamente');
 
-          // Esperar un momento para que el usuario vea el mensaje antes de volver
+          // Esperar un momento para que el usuario vea el mensaje antes de redirigir
           await Future.delayed(Duration(seconds: 1));
           if (mounted) {
-            Navigator.pop(context);
+            // Usar Navigator.pop para volver a la pantalla anterior
+            Navigator.pop(context,
+                true); // Pasar true para indicar que se agregó una planta
           }
         }
       } else {
@@ -125,6 +156,7 @@ class _AddPlantPageState extends State<AddPlantPage> {
     final theme = Theme.of(context);
     final deviceProvider = Provider.of<DeviceProvider>(context);
     final devices = deviceProvider.devices;
+    final isESPConnected = deviceProvider.isESPConnected;
 
     return Scaffold(
       appBar: AppBar(
@@ -149,7 +181,7 @@ class _AddPlantPageState extends State<AddPlantPage> {
                         color: theme.colorScheme.primaryContainer,
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
-                          color: theme.colorScheme.primary.withOpacity(0.5),
+                          color: theme.colorScheme.primary.withAlpha(128),
                           width: 2,
                         ),
                       ),
@@ -233,12 +265,19 @@ class _AddPlantPageState extends State<AddPlantPage> {
                 ),
                 SizedBox(height: 16),
 
-                if (deviceProvider.isLoading)
-                  Center(child: CircularProgressIndicator())
-                else if (devices.isEmpty)
-                  _buildNoDevicesMessage(theme)
-                else
-                  _buildDeviceSelector(devices, theme),
+                // Botón para detectar ESP8266
+                CustomButton(
+                  text: 'Detectar ESP8266',
+                  icon: Icons.search,
+                  onPressed: _detectESPDevice,
+                ),
+                SizedBox(height: 16),
+
+                deviceProvider.isLoading
+                    ? Center(child: CircularProgressIndicator())
+                    : devices.isEmpty
+                        ? _buildNoDevicesMessage(theme)
+                        : _buildDeviceSelector(devices, theme, isESPConnected),
 
                 SizedBox(height: 24),
 
@@ -381,11 +420,15 @@ class _AddPlantPageState extends State<AddPlantPage> {
     );
   }
 
-  Widget _buildDeviceSelector(List<DeviceModel> devices, ThemeData theme) {
+  Widget _buildDeviceSelector(
+      List<DeviceModel> devices, ThemeData theme, bool isESPConnected) {
     return Column(
       children: devices.map((device) {
         final isSelected = selectedDeviceId == device.id;
-        final isConnected = device.status == DeviceStatus.connected;
+        final isConnected = device.status == DeviceStatus.connected ||
+            (isESPConnected &&
+                device.ipAddress ==
+                    Provider.of<DeviceProvider>(context).connectedESPIP);
 
         return Card(
           elevation: isSelected ? 4 : 1,
@@ -412,8 +455,8 @@ class _AddPlantPageState extends State<AddPlantPage> {
                     height: 48,
                     decoration: BoxDecoration(
                       color: isConnected
-                          ? theme.colorScheme.primary.withOpacity(0.1)
-                          : theme.colorScheme.error.withOpacity(0.1),
+                          ? theme.colorScheme.primary.withAlpha(26)
+                          : theme.colorScheme.error.withAlpha(26),
                       shape: BoxShape.circle,
                     ),
                     child: Icon(
@@ -461,6 +504,43 @@ class _AddPlantPageState extends State<AddPlantPage> {
                         ),
                       ],
                     ),
+                  ),
+                  // Botón para eliminar el dispositivo
+                  IconButton(
+                    icon: Icon(Icons.close, color: theme.colorScheme.error),
+                    onPressed: () async {
+                      final confirm = await showDialog<bool>(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: Text('Eliminar dispositivo'),
+                          content: Text(
+                              '¿Estás seguro de que deseas eliminar este dispositivo?'),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(context, false),
+                              child: Text('Cancelar'),
+                            ),
+                            TextButton(
+                              onPressed: () => Navigator.pop(context, true),
+                              child: Text('Eliminar'),
+                            ),
+                          ],
+                        ),
+                      );
+
+                      if (confirm == true) {
+                        final deviceProvider =
+                            Provider.of<DeviceProvider>(context, listen: false);
+                        await deviceProvider.deleteDevice(device.id);
+
+                        // Si este dispositivo estaba seleccionado, limpiar la selección
+                        if (selectedDeviceId == device.id) {
+                          setState(() {
+                            selectedDeviceId = null;
+                          });
+                        }
+                      }
+                    },
                   ),
                   if (isSelected)
                     Icon(

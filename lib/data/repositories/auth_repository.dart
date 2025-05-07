@@ -74,6 +74,33 @@ class AuthRepository {
     await _auth.signOut();
   }
 
+  // Método para restablecer contraseña
+  Future<void> resetPassword(String email) async {
+    try {
+      print('Enviando correo de recuperación a: $email');
+      await _auth.sendPasswordResetEmail(email: email);
+      print('Correo de recuperación enviado correctamente');
+    } catch (e) {
+      print('Error al enviar correo de recuperación: $e');
+      // Proporcionar mensajes de error más específicos
+      if (e is FirebaseAuthException) {
+        switch (e.code) {
+          case 'user-not-found':
+            throw Exception(
+                'No hay usuario registrado con este correo electrónico');
+          case 'invalid-email':
+            throw Exception('El formato del correo electrónico no es válido');
+          case 'too-many-requests':
+            throw Exception('Demasiados intentos. Inténtalo más tarde');
+          default:
+            throw Exception('Error al enviar correo: ${e.message}');
+        }
+      } else {
+        throw e;
+      }
+    }
+  }
+
   // Método para actualizar el perfil del usuario
   Future<UserModel?> updateUserProfile({
     required String uid,

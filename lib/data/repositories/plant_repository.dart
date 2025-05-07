@@ -212,6 +212,19 @@ class PlantRepository {
     }
   }
 
+  // Guardar una lectura
+  Future<void> saveReading(ReadingModel reading) async {
+    try {
+      await _firestore
+          .collection('readings')
+          .doc(reading.id)
+          .set(reading.toMap());
+    } catch (e) {
+      print('Error al guardar lectura: $e');
+      throw e;
+    }
+  }
+
   // Modificar el método getWateringHistory para usar el índice correctamente
   Future<List<WateringEventModel>> getWateringHistory(String plantId,
       {int limit = 50}) async {

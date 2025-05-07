@@ -4,11 +4,12 @@ import 'package:provider/provider.dart';
 import 'package:proyecto_jj/core/utils/alert_helper.dart';
 import 'package:proyecto_jj/data/models/user_model.dart';
 import 'package:proyecto_jj/presentation/pages/edit_profile_page.dart';
+import 'package:proyecto_jj/presentation/pages/notifications_page.dart';
 import 'package:proyecto_jj/presentation/pages/theme_selection_page.dart';
 import '../providers/auth_provider.dart';
 
 class ProfilePage extends StatelessWidget {
-  const ProfilePage({super.key});
+  const ProfilePage({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -66,10 +67,11 @@ class ProfilePage extends StatelessWidget {
                       'Notificaciones',
                       Icons.notifications_outlined,
                       () {
-                        // Implementar configuración de notificaciones
-                        AlertHelper.showInfoAlert(
-                          context, 
-                          'Función de notificaciones próximamente'
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => NotificationsPage(),
+                          ),
                         );
                       },
                     ),
@@ -93,9 +95,7 @@ class ProfilePage extends StatelessWidget {
                       () {
                         // Implementar configuración
                         AlertHelper.showInfoAlert(
-                          context, 
-                          'Función de configuración próximamente'
-                        );
+                            context, 'Función de configuración próximamente');
                       },
                     ),
                     _buildProfileOption(
@@ -105,9 +105,7 @@ class ProfilePage extends StatelessWidget {
                       () {
                         // Implementar ayuda y soporte
                         AlertHelper.showInfoAlert(
-                          context, 
-                          'Función de ayuda y soporte próximamente'
-                        );
+                            context, 'Función de ayuda y soporte próximamente');
                       },
                     ),
                     SizedBox(height: 16),
@@ -123,7 +121,7 @@ class ProfilePage extends StatelessWidget {
                           context,
                           '¿Estás seguro que deseas cerrar sesión?',
                         );
-                        
+
                         if (confirm) {
                           await authProvider.signOut();
                           if (context.mounted) {
@@ -174,7 +172,7 @@ class ProfilePage extends StatelessWidget {
     bool isLogout = false,
   }) {
     final theme = Theme.of(context);
-    
+
     return ListTile(
       leading: Icon(
         icon,

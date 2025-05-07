@@ -84,6 +84,11 @@ class PlantUseCase {
     );
   }
 
+  // Método para guardar una lectura
+  Future<void> saveReading(ReadingModel reading) async {
+    await _plantRepository.saveReading(reading);
+  }
+
   // Método para generar datos de prueba
   Future<void> generateMockData(String plantId) async {
     await _plantRepository.addMockReadingData(plantId);

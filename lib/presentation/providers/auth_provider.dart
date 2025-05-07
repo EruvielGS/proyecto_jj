@@ -46,6 +46,15 @@ class AuthProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  // Método para restablecer contraseña
+  Future<void> resetPassword(String email) async {
+    try {
+      await _authUseCase.resetPassword(email);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   // Método para actualizar el perfil del usuario
   Future<void> updateUserProfile({
     String? firstName,
@@ -53,7 +62,7 @@ class AuthProvider with ChangeNotifier {
   }) async {
     try {
       if (_user == null) throw Exception('No hay usuario autenticado');
-      
+
       _user = await _authUseCase.updateUserProfile(
         uid: _user!.uid,
         firstName: firstName,
@@ -69,7 +78,7 @@ class AuthProvider with ChangeNotifier {
   Future<void> updateUserAvatar(File imageFile) async {
     try {
       if (_user == null) throw Exception('No hay usuario autenticado');
-      
+
       _user = await _authUseCase.updateUserAvatar(
         uid: _user!.uid,
         imageFile: imageFile,
@@ -84,7 +93,7 @@ class AuthProvider with ChangeNotifier {
   Future<void> updateCustomAvatar(Map<String, dynamic> avatarData) async {
     try {
       if (_user == null) throw Exception('No hay usuario autenticado');
-      
+
       _user = await _authUseCase.updateCustomAvatar(
         uid: _user!.uid,
         avatarData: avatarData,
